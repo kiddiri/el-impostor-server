@@ -8,12 +8,19 @@ class Room {
             isHost: true,
             role: null,
             word: null,
-            hasVoted: false
+            hasVoted: false,
+            eliminated: false
         }];
         this.gameState = 'waiting'; // waiting, playing, voting, ended
         this.currentWord = null;
         this.impostorId = null;
         this.votes = {};
+
+        // New properties for online enhancements
+        this.turnHistory = []; // {playerId, playerName, word, turnNumber}
+        this.currentTurn = 0;
+        this.chatMessages = []; // {playerName, text, timestamp}
+        this.roundNumber = 1;
     }
 
     generateCode() {
@@ -32,7 +39,8 @@ class Room {
             isHost: false,
             role: null,
             word: null,
-            hasVoted: false
+            hasVoted: false,
+            eliminated: false
         });
     }
 
@@ -135,6 +143,168 @@ class Room {
         };
     }
 
+    // New methods for online mode enhancements
+    submitWord(playerId, word) {
+        const activePlayers = this.players.filter(p => !p.eliminated);
+        const currentPlayer = activePlayers[this.currentTurn];
+
+        if (!currentPlayer || currentPlayer.socketId !== playerId) {
+            return { success: false, error: 'Not your turn' };
+        }
+
+        if (!word || word.trim().length === 0 || word.length > 50) {
+            return { success: false, error: 'Invalid word length' };
+        }
+
+        // Save word to history
+        this.turnHistory.push({
+            playerId,
+            playerName: currentPlayer.name,
+            word: word.trim(),
+            turnNumber: this.currentTurn,
+            roundNumber: this.roundNumber
+        });
+
+        // Advance turn
+        this.currentTurn++;
+
+        // Check if round is complete
+        if (this.currentTurn >= activePlayers.length) {
+            // Round complete, go to voting
+            this.gameState = 'voting';
+            return { success: true, action: 'voting', history: this.turnHistory };
+        }
+
+        // Next turn
+        const nextPlayer = activePlayers[this.currentTurn];
+        return {
+            success: true,
+            action: 'next',
+            nextPlayerId: nextPlayer.socketId,
+            nextPlayerName: nextPlayer.name,
+            turnNumber: this.currentTurn,
+            history: this.turnHistory
+        };
+    }
+
+    addChatMessage(playerName, text) {
+        if (!text || text.trim().length === 0 || text.length > 200) {
+            return { success: false, error: 'Invalid message' };
+        }
+
+        const message = {
+            playerName,
+            text: text.trim(),
+            timestamp: Date.now()
+        };
+
+        this.chatMessages.push(message);
+        return { success: true, message };
+    }
+
+    submitVoteOnline(voterId, accusedId) {
+        const voter = this.players.find(p => p.socketId === voterId && !p.eliminated);
+        if (!voter) {
+            return { success: false, error: 'Invalid voter' };
+        }
+
+        if (voter.hasVoted) {
+            return { success: false, error: 'Already voted' };
+        }
+
+        voter.hasVoted = true;
+        this.votes[voterId] = accusedId;
+
+        // Check if all active players have voted
+        const activePlayers = this.players.filter(p => !p.eliminated);
+        const allVoted = activePlayers.every(p => p.hasVoted);
+
+        if (allVoted) {
+            return {
+                success: true,
+                allVotesIn: true,
+                result: this.calculateMajorityVote()
+            };
+        }
+
+        return {
+            success: true,
+            allVotesIn: false,
+            votesCount: Object.keys(this.votes).length,
+            totalCount: activePlayers.length
+        };
+    }
+
+    calculateMajorityVote() {
+        // Count votes
+        const voteCounts = {};
+        Object.values(this.votes).forEach(accusedId => {
+            voteCounts[accusedId] = (voteCounts[accusedId] || 0) + 1;
+        });
+
+        // Find most voted
+        let maxVotes = 0;
+        let eliminatedId = null;
+        Object.entries(voteCounts).forEach(([id, count]) => {
+            if (count > maxVotes) {
+                maxVotes = count;
+                eliminatedId = id;
+            }
+        });
+
+        // Eliminate player
+        let eliminatedName = null;
+        if (eliminatedId) {
+            const player = this.players.find(p => p.socketId === eliminatedId);
+            if (player) {
+                player.eliminated = true;
+                eliminatedName = player.name;
+            }
+        }
+
+        // Check game over
+        const gameOver = this.checkGameOver();
+
+        // Reset for next round
+        this.players.forEach(p => p.hasVoted = false);
+        this.votes = {};
+        this.currentTurn = 0;
+        this.roundNumber++;
+
+        if (!gameOver) {
+            this.gameState = 'playing';
+        } else {
+            this.gameState = 'ended';
+        }
+
+        return {
+            voteCounts,
+            eliminatedId,
+            eliminatedName,
+            gameOver: gameOver,
+            winner: gameOver ? gameOver.winner : null,
+            impostorId: gameOver ? this.impostorId : null,
+            impostorName: gameOver ? this.players.find(p => p.socketId === this.impostorId)?.name : null
+        };
+    }
+
+    checkGameOver() {
+        const activePlayers = this.players.filter(p => !p.eliminated);
+        const impostor = activePlayers.find(p => p.role === 'impostor');
+
+        // Impostor eliminated = citizens win
+        if (!impostor) {
+            return { winner: 'citizens' };
+        }
+
+        // Only 2 players left (impostor and 1 citizen) = impostor wins
+        if (activePlayers.length <= 2) {
+            return { winner: 'impostor' };
+        }
+
+        return null;
+    }
+
     getState() {
         return {
             code: this.code,
@@ -228,6 +398,31 @@ class GameManager {
 
     getRoomCount() {
         return this.rooms.size;
+    }
+
+    // New methods for online mode
+    submitWord(roomCode, playerId, word) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { success: false, error: 'Room not found' };
+        }
+        return room.submitWord(playerId, word);
+    }
+
+    addChatMessage(roomCode, playerName, text) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { success: false, error: 'Room not found' };
+        }
+        return room.addChatMessage(playerName, text);
+    }
+
+    submitVoteOnline(roomCode, voterId, accusedId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { success: false, error: 'Room not found' };
+        }
+        return room.submitVoteOnline(voterId, accusedId);
     }
 }
 
