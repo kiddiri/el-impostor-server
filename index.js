@@ -72,7 +72,14 @@ io.on('connection', (socket) => {
                 io.to(player.socketId).emit('game-started', {
                     role: player.role,
                     word: player.word,
-                    gameState: room.gameState
+                    gameState: room.gameState,
+                    roomCode: roomCode,
+                    players: room.players.map(p => ({
+                        socketId: p.socketId,
+                        name: p.name,
+                        isHost: p.isHost,
+                        eliminated: p.eliminated
+                    }))
                 });
             });
             callback({ success: true });
