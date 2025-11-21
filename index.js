@@ -157,6 +157,27 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Confirm role (player has seen their role)
+    socket.on('confirm-role', ({ roomCode }, callback) => {
+        const result = gameManager.confirmRole(roomCode, socket.id);
+        if (result.success) {
+            if (result.allConfirmed) {
+                // All players have confirmed, start gameplay
+                const room = gameManager.getRoom(roomCode);
+                const activePlayers = room.players.filter(p => !p.eliminated);
+                const firstPlayer = activePlayers[0];
+
+                io.to(roomCode).emit('all-roles-confirmed', {
+                    currentPlayerId: firstPlayer.socketId,
+                    currentPlayerName: firstPlayer.name
+                });
+            }
+            callback({ success: true, confirmedCount: result.confirmedCount, totalCount: result.totalCount });
+        } else {
+            callback({ success: false, error: result.error });
+        }
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
         const roomCode = gameManager.removePlayer(socket.id);

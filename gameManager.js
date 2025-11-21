@@ -9,7 +9,8 @@ class Room {
             role: null,
             word: null,
             hasVoted: false,
-            eliminated: false
+            eliminated: false,
+            roleConfirmed: false
         }];
         this.gameState = 'waiting'; // waiting, playing, voting, ended
         this.currentWord = null;
@@ -40,7 +41,8 @@ class Room {
             role: null,
             word: null,
             hasVoted: false,
-            eliminated: false
+            eliminated: false,
+            roleConfirmed: false
         });
     }
 
@@ -305,6 +307,25 @@ class Room {
         return null;
     }
 
+    confirmRole(playerId) {
+        const player = this.players.find(p => p.socketId === playerId);
+        if (!player) {
+            return { success: false, error: 'Player not found' };
+        }
+
+        player.roleConfirmed = true;
+
+        // Check if all players have confirmed
+        const allConfirmed = this.players.every(p => p.roleConfirmed);
+
+        return {
+            success: true,
+            allConfirmed,
+            confirmedCount: this.players.filter(p => p.roleConfirmed).length,
+            totalCount: this.players.length
+        };
+    }
+
     getState() {
         return {
             code: this.code,
@@ -423,6 +444,14 @@ class GameManager {
             return { success: false, error: 'Room not found' };
         }
         return room.submitVoteOnline(voterId, accusedId);
+    }
+
+    confirmRole(roomCode, playerId) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { success: false, error: 'Room not found' };
+        }
+        return room.confirmRole(playerId);
     }
 }
 
