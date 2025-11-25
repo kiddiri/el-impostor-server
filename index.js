@@ -178,12 +178,32 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Play again (reset game)
+    socket.on('play-again', ({ roomCode }, callback) => {
+        const result = gameManager.resetGame(roomCode);
+        if (result.success) {
+            io.to(roomCode).emit('game-reset');
+            callback({ success: true });
+        } else {
+            callback({ success: false, error: result.error });
+        }
+    });
+
+    // Get room state (for rejoining lobby)
+    socket.on('get-room-state', ({ roomCode }, callback) => {
+        const roomState = gameManager.getRoomState(roomCode);
+        if (roomState) {
+            callback({ success: true, roomState });
+        } else {
+            callback({ success: false, error: 'Room not found' });
+        }
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
         const roomCode = gameManager.removePlayer(socket.id);
         if (roomCode) {
             io.to(roomCode).emit('room-update', gameManager.getRoomState(roomCode));
-            console.log(`Player ${socket.id} disconnected from room ${roomCode}`);
         }
     });
 });

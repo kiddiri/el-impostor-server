@@ -24,6 +24,26 @@ class Room {
         this.roundNumber = 1;
     }
 
+    resetGame() {
+        this.gameState = 'lobby';
+        this.impostorId = null;
+        this.currentWord = null;
+        this.votes = {};
+        this.turnHistory = [];
+        this.currentTurn = 0;
+        this.chatMessages = [];
+        this.roundNumber = 1;
+
+        // Reset player states
+        this.players.forEach(p => {
+            p.role = null;
+            p.word = null;
+            p.hasVoted = false;
+            p.eliminated = false;
+            p.isReady = false;
+        });
+    }
+
     generateCode() {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
         let code = '';
@@ -326,13 +346,35 @@ class Room {
         };
     }
 
+    resetGame() {
+        this.gameState = 'waiting';
+        this.currentWord = null;
+        this.impostorId = null;
+        this.votes = {};
+        this.turnHistory = [];
+        this.currentTurn = 0;
+        this.roundNumber = 1;
+
+        // Reset player states
+        this.players.forEach(p => {
+            p.role = null;
+            p.word = null;
+            p.hasVoted = false;
+            p.eliminated = false;
+            p.roleConfirmed = false;
+        });
+
+        return { success: true };
+    }
+
     getState() {
         return {
             code: this.code,
             players: this.players.map(p => ({
                 socketId: p.socketId,
                 name: p.name,
-                isHost: p.isHost
+                isHost: p.isHost,
+                eliminated: p.eliminated // Include eliminated status
             })),
             gameState: this.gameState,
             playerCount: this.players.length
@@ -440,10 +482,15 @@ class GameManager {
 
     submitVoteOnline(roomCode, voterId, accusedId) {
         const room = this.rooms.get(roomCode);
-        if (!room) {
-            return { success: false, error: 'Room not found' };
-        }
+        if (!room) return { success: false, error: 'Room not found' };
         return room.submitVoteOnline(voterId, accusedId);
+    }
+
+    resetGame(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) return { success: false, error: 'Room not found' };
+        room.resetGame();
+        return { success: true };
     }
 
     confirmRole(roomCode, playerId) {
@@ -452,6 +499,14 @@ class GameManager {
             return { success: false, error: 'Room not found' };
         }
         return room.confirmRole(playerId);
+    }
+
+    playAgain(roomCode) {
+        const room = this.rooms.get(roomCode);
+        if (!room) {
+            return { success: false, error: 'Room not found' };
+        }
+        return room.resetGame();
     }
 }
 
